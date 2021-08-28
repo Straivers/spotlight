@@ -1,11 +1,8 @@
-#[derive(Debug, Default)]
-#[repr(transparent)]
-pub struct TextLength(pub u16);
+use std::convert::TryFrom;
 
-#[derive(Debug, Default)]
-#[repr(transparent)]
-pub struct TextOffset(pub u32);
+use crate::error::GraphError;
 
+/// A 32-bit pointer to an [Atom].
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
 pub struct AtomPtr(pub u32);
@@ -19,30 +16,30 @@ impl AtomPtr {
 #[repr(C)]
 #[derive(Debug)]
 pub struct Atom {
-    /// Bytes (10) reserved for future usage
-    unused: [u8; 10],
-
-    /// The length of the text associated with this atom. This must never be
-    /// modified. Create a new atom instead.
-    pub text_length: TextLength,
-
-    /// The index of the first character of this atom's text in the Graph's text
-    /// block. This must never be modified. Create a new atom instead.
-    pub text_offset: TextOffset,
+    /// The length of the `atom`'s text
+    pub text_length: u16,
+    /// The `atom`'s text
+    pub text_content: [u8; 510],
 }
 
 #[test]
 fn atom_size() {
-    assert_eq!(std::mem::size_of::<Atom>(), 16);
+    assert_eq!(std::mem::size_of::<Atom>(), 512);
 }
 
 impl Atom {
-    #[must_use]
-    pub fn new(text_length: TextLength, text_offset: TextOffset) -> Self {
-        Self {
-            unused: [0; 10],
-            text_length,
-            text_offset,
-        }
+    /// Creates a new [Atom].
+    ///
+    /// # Errors
+    /// [Atom] creation fails if the text is longer than 510 bytes long.
+    pub fn new(text: &str) -> Result<Self, GraphError> {
+        let mut atom = Self {
+            text_length: u16::try_from(text.len()).map_err(|_| GraphError::TextTooLong)?,
+            text_content: [0; 510],
+        };
+
+        atom.text_content[0..text.len()].copy_from_slice(text.as_bytes());
+
+        Ok(atom)
     }
 }
