@@ -74,7 +74,7 @@ impl LinkPtr {
     /// Returns what kind of pointer this is.
     #[must_use]
     pub fn kind(&self) -> LinkKind {
-        if self.0 == 0 {
+        if self.is_null() {
             return LinkKind::None;
         }
 
@@ -87,12 +87,22 @@ impl LinkPtr {
         }
     }
 
+    /// Returns true if the pointer is null.
+    pub fn is_null(&self) -> bool {
+        self.0 == 0
+    }
+
+    /// Creates a null LinkPtr.
+    pub fn null() -> Self {
+        Self(0)
+    }
+
     /// Creates a set of up to 5 delta-encoded pointers and packs them into the
     /// pointer itself. It is invalid for the `current` pointer to be null.
     ///
     /// ```
     /// # use graph::{AtomPtr, LinkPtr};
-    /// LinkPtr::new_packed_set(AtomPtr(5), [AtomPtr(1), AtomPtr(2), AtomPtr(35), AtomPtr(0), AtomPtr(0)]);
+    /// LinkPtr::new_packed_set(AtomPtr(5), &[AtomPtr(1), AtomPtr(2), AtomPtr(35), AtomPtr(0), AtomPtr(0)]);
     /// ```
     ///
     /// To pack in 5 link pointers, each must obey certain restrictions:
@@ -103,17 +113,17 @@ impl LinkPtr {
     ///
     /// ```should_panic
     /// # use graph::{AtomPtr, LinkPtr};
-    /// LinkPtr::new_packed_set(AtomPtr(5), [AtomPtr(1), AtomPtr(2), AtomPtr(60), AtomPtr(0), AtomPtr(0)]);
+    /// LinkPtr::new_packed_set(AtomPtr(5), &[AtomPtr(1), AtomPtr(2), AtomPtr(60), AtomPtr(0), AtomPtr(0)]);
     /// // Index out of range here ---------------------------------------^
     /// ```
     ///
     /// ```should_panic
     /// # use graph::{AtomPtr, LinkPtr};
-    /// LinkPtr::new_packed_set(AtomPtr(5), [AtomPtr(1), AtomPtr(0), AtomPtr(3), AtomPtr(0), AtomPtr(0)]);
+    /// LinkPtr::new_packed_set(AtomPtr(5), &[AtomPtr(1), AtomPtr(0), AtomPtr(3), AtomPtr(0), AtomPtr(0)]);
     /// // Interior null here --------------------------------^
     /// ```
     #[must_use]
-    pub fn new_packed_set(current: AtomPtr, pointers: [AtomPtr; 5]) -> Self {
+    pub fn new_packed_set(current: AtomPtr, pointers: &[AtomPtr; 5]) -> Self {
         assert_ne!(
             pointers[0].0, 0,
             "A packed-offset link pointer must have at least one pointer to an atom."
@@ -121,7 +131,7 @@ impl LinkPtr {
         let mut found_0 = false;
         for p in pointers {
             assert_ne!(
-                p, current,
+                *p, current,
                 "A packed-offset link pointer must not point to itself."
             );
             // check for non-trailing 0s
@@ -181,7 +191,6 @@ impl LinkPtr {
     #[must_use]
     pub fn new_small_link_set_index(index: u32) -> Self {
         assert!(index <= LinkKind::INDEX_MAX);
-        assert_ne!(index, 0, "Small link set index cannot be null.");
         Self((index << 2) | LinkKind::SMALL_LINK_SET_INDEX)
     }
 
@@ -190,7 +199,6 @@ impl LinkPtr {
     #[must_use]
     pub fn new_large_link_set_index(index: u32) -> Self {
         assert!(index <= LinkKind::INDEX_MAX);
-        assert_ne!(index, 0, "Large link set index cannot be null.");
         Self((index << 2) | LinkKind::LARGE_LINK_SET_INDEX)
     }
 
@@ -289,6 +297,13 @@ impl std::fmt::Debug for LinkPtr {
     }
 }
 
+#[repr(C)]
+#[derive(Debug, Default, Clone, Copy)]
+pub struct Link {
+    atom: AtomPtr,
+    link: LinkPtr,
+}
+
 /// A [LinkSet] is a fixed-size list of [AtomPtr]s that can be chained to form
 /// a linked list of arbitrary length.
 ///
@@ -299,7 +314,7 @@ impl std::fmt::Debug for LinkPtr {
 #[repr(C)]
 #[derive(Debug)]
 pub struct LinkSet<const SIZE: usize> {
-    next: LinkPtr,
+    next: Link,
     length: u16,
     unused: [u8; 2],
     pointers: [AtomPtr; SIZE],
@@ -318,7 +333,7 @@ impl<const SIZE: usize> LinkSet<SIZE> {
         }
 
         let mut set = Self {
-            next: LinkPtr::default(),
+            next: Link::default(),
             length: pointers.len() as u16,
             unused: [0; 2],
             pointers: [AtomPtr::default(); SIZE],
@@ -339,16 +354,69 @@ pub type LargeLinkSet = LinkSet<510>;
 /// Iterator that traverses a list of [LinkPtr]s and produces [AtomPtr]s.
 pub struct LinkIter<'a> {
     index: u16,
-    current: LinkPtr,
+    current: Link,
     small_sets: &'a [SmallLinkSet],
     large_sets: &'a [LargeLinkSet],
+}
+
+impl <'a> LinkIter<'a> {
+    pub fn new(link: Link, small_sets: &'a [SmallLinkSet], large_sets: &'a [LargeLinkSet]) -> Self {
+        Self {
+            index: 0,
+            current: link,
+            small_sets,
+            large_sets
+        }
+    }
 }
 
 impl <'a> Iterator for LinkIter<'a> {
     type Item = AtomPtr;
 
     fn next(&mut self) -> Option<Self::Item> {
-        todo!()
+        match self.current.link.kind() {
+            LinkKind::AtomPointer => {
+                let p = self.current.link.as_atom_ptr();
+                self.current = Link::default();
+                Some(p)
+            }
+            LinkKind::PackedOffsets => {
+                let set = self.current.link.as_packed_set(self.current.atom);
+                let p = set[self.index as usize];
+                
+                self.index += 1;
+                if self.index == 5 ||  set[self.index as usize].is_null() {
+                    self.current = Link::default();
+                }
+
+                Some(p)
+            }
+            LinkKind::SmallLinkSetIndex => {
+                let set = &self.small_sets[self.current.link.as_small_link_set_index() as usize];
+                let p = set.pointers[self.index as usize];
+
+                self.index += 1;
+                if self.index == 30 || set.pointers[self.index as usize].is_null() {
+                    self.index = 0;
+                    self.current = set.next;
+                }
+
+                Some(p)
+            }
+            LinkKind::LargeLinkSetIndex => {
+                let set = &self.large_sets[self.current.link.as_large_link_set_index() as usize];
+                let p = set.pointers[self.index as usize];
+
+                self.index += 1;
+                if self.index == 30 || set.pointers[self.index as usize].is_null() {
+                    self.index = 0;
+                    self.current = set.next;
+                }
+
+                Some(p)
+            }
+            LinkKind::None => None
+        }
     }
 }
 
@@ -369,7 +437,7 @@ mod tests {
         {
             let ptr = LinkPtr::new_packed_set(
                 AtomPtr(3),
-                [AtomPtr(1), AtomPtr(2), AtomPtr(4), AtomPtr(4), AtomPtr(5)],
+                &[AtomPtr(1), AtomPtr(2), AtomPtr(4), AtomPtr(4), AtomPtr(5)],
             );
             let offsets = ptr.as_packed_set(AtomPtr(3));
 
@@ -382,7 +450,7 @@ mod tests {
         {
             let ptr = LinkPtr::new_packed_set(
                 AtomPtr::MAX,
-                [
+                &[
                     AtomPtr(u32::MAX - 4),
                     AtomPtr(0),
                     AtomPtr(0),
@@ -391,7 +459,6 @@ mod tests {
                 ],
             );
 
-            assert_eq!(ptr.as_packed_set(AtomPtr::MAX)[0], AtomPtr(u32::MAX - 4));
             let set = ptr.as_packed_set(AtomPtr::MAX);
             assert_eq!(set[0], AtomPtr(u32::MAX - 4));
             assert_eq!(set[1], AtomPtr::null());
@@ -403,23 +470,21 @@ mod tests {
 
     #[test]
     #[should_panic]
-    fn bad_ptr_adjescent1() {
     fn bad_packed_set1() {
         // Packed sets must never be completely empty.
         let _ = LinkPtr::new_packed_set(
             AtomPtr(3),
-            [AtomPtr(0), AtomPtr(0), AtomPtr(0), AtomPtr(0), AtomPtr(0)],
+            &[AtomPtr(0), AtomPtr(0), AtomPtr(0), AtomPtr(0), AtomPtr(0)],
         );
     }
 
     #[test]
     #[should_panic]
-    fn bad_ptr_adjescent2() {
     fn bad_packed_set2() {
         // Packed sets must never have an interior null pointer.
         let _ = LinkPtr::new_packed_set(
             AtomPtr(3),
-            [AtomPtr(1), AtomPtr(1), AtomPtr(0), AtomPtr(1), AtomPtr(1)],
+            &[AtomPtr(1), AtomPtr(1), AtomPtr(0), AtomPtr(1), AtomPtr(1)],
         );
     }
 
@@ -442,5 +507,94 @@ mod tests {
         let ptr = LinkPtr::new_small_link_set_index(100);
         assert_eq!(ptr.kind(), LinkKind::SmallLinkSetIndex);
         assert_eq!(ptr.as_small_link_set_index(), 100);
+    }
+
+    #[test]
+    fn iter_packed_link_set() {
+        let ptr = LinkPtr::new_packed_set(AtomPtr(1), &[AtomPtr(2), AtomPtr(3), AtomPtr(4), AtomPtr(5), AtomPtr(0)]);
+        let mut iter = LinkIter::new(Link { atom: AtomPtr(1), link: ptr }, &[], &[]);
+
+        assert_eq!(iter.next(), Some(AtomPtr(2)));
+        assert_eq!(iter.next(), Some(AtomPtr(3)));
+        assert_eq!(iter.next(), Some(AtomPtr(4)));
+        assert_eq!(iter.next(), Some(AtomPtr(5)));
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn iter_atom_ptr() {
+        let ptr = LinkPtr::new_atom_ptr(AtomPtr(20));
+        let mut iter = LinkIter::new(Link { atom: AtomPtr(20), link: ptr }, &[], &[]);
+
+        assert_eq!(iter.next(), Some(AtomPtr(20)));
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn iter_small_set() {
+        let mut sets = [SmallLinkSet::from_slice(&[
+            AtomPtr(10),
+            AtomPtr(11),
+            AtomPtr(12),
+            AtomPtr(13),
+            AtomPtr(14),
+            AtomPtr(15),
+            AtomPtr(16),
+            AtomPtr(17),
+        ])];
+
+        sets[0].next = Link{ atom: AtomPtr(20), link: LinkPtr::new_atom_ptr(AtomPtr(100)) };
+
+        let mut iter = LinkIter::new(Link { atom: AtomPtr(9), link: LinkPtr::new_small_link_set_index(0) }, &sets, &[]);
+
+        assert_eq!(iter.next(), Some(AtomPtr(10)));
+        assert_eq!(iter.next(), Some(AtomPtr(11)));
+        assert_eq!(iter.next(), Some(AtomPtr(12)));
+        assert_eq!(iter.next(), Some(AtomPtr(13)));
+        assert_eq!(iter.next(), Some(AtomPtr(14)));
+        assert_eq!(iter.next(), Some(AtomPtr(15)));
+        assert_eq!(iter.next(), Some(AtomPtr(16)));
+        assert_eq!(iter.next(), Some(AtomPtr(17)));
+        assert_eq!(iter.next(), Some(AtomPtr(100)));
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn iter_large_set() {
+        let mut large_sets = [LargeLinkSet::from_slice(&[
+            AtomPtr(10),
+            AtomPtr(11),
+            AtomPtr(12),
+            AtomPtr(13),
+            AtomPtr(14),
+            AtomPtr(15),
+            AtomPtr(16),
+            AtomPtr(17),
+        ])];
+
+        let mut small_sets = [SmallLinkSet::from_slice(&[AtomPtr(18), AtomPtr(19), AtomPtr(20)])];
+
+        large_sets[0].next = Link {
+            atom: AtomPtr(1000),
+            link: LinkPtr::new_small_link_set_index(0),
+        };
+
+        small_sets[0].next = Link {
+            atom: AtomPtr(50),
+            link: LinkPtr::new_packed_set(AtomPtr(50), &[
+                AtomPtr(21),
+                AtomPtr(22),
+                AtomPtr(23),
+                AtomPtr(24),
+                AtomPtr(25),
+            ])
+        };
+
+        let mut iter = LinkIter::new(Link { atom: AtomPtr(9), link: LinkPtr::new_large_link_set_index(0) }, &small_sets, &large_sets);
+
+        for i in 10 ..= 25 {
+            assert_eq!(iter.next(), Some(AtomPtr(i)));
+        }
+        assert_eq!(iter.next(), None);
     }
 }
