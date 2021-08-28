@@ -9,7 +9,7 @@ pub struct AtomPtr(pub u32);
 
 impl AtomPtr {
     pub const MAX: AtomPtr = AtomPtr(u32::MAX);
-    
+
     pub fn null() -> Self {
         AtomPtr(0)
     }

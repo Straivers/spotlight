@@ -327,8 +327,8 @@ impl<const SIZE: usize> LinkSet<SIZE> {
 
         for pointer in pointers {
             assert!(
-                *pointer != AtomPtr::default(),
-                "A pointer set must not have interior null pointers."
+                pointer.is_null(),
+                "A LinkSet must not have interior null pointers."
             );
         }
 
@@ -336,7 +336,7 @@ impl<const SIZE: usize> LinkSet<SIZE> {
             next: Link::default(),
             length: pointers.len() as u16,
             unused: [0; 2],
-            pointers: [AtomPtr::default(); SIZE],
+            pointers: [AtomPtr::null(); SIZE],
         };
 
         set.pointers[0..pointers.len()].copy_from_slice(pointers);
@@ -359,18 +359,18 @@ pub struct LinkIter<'a> {
     large_sets: &'a [LargeLinkSet],
 }
 
-impl <'a> LinkIter<'a> {
+impl<'a> LinkIter<'a> {
     pub fn new(link: Link, small_sets: &'a [SmallLinkSet], large_sets: &'a [LargeLinkSet]) -> Self {
         Self {
             index: 0,
             current: link,
             small_sets,
-            large_sets
+            large_sets,
         }
     }
 }
 
-impl <'a> Iterator for LinkIter<'a> {
+impl<'a> Iterator for LinkIter<'a> {
     type Item = AtomPtr;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -383,9 +383,9 @@ impl <'a> Iterator for LinkIter<'a> {
             LinkKind::PackedOffsets => {
                 let set = self.current.link.as_packed_set(self.current.atom);
                 let p = set[self.index as usize];
-                
+
                 self.index += 1;
-                if self.index == 5 ||  set[self.index as usize].is_null() {
+                if self.index == 5 || set[self.index as usize].is_null() {
                     self.current = Link::default();
                 }
 
@@ -415,7 +415,7 @@ impl <'a> Iterator for LinkIter<'a> {
 
                 Some(p)
             }
-            LinkKind::None => None
+            LinkKind::None => None,
         }
     }
 }
@@ -511,8 +511,18 @@ mod tests {
 
     #[test]
     fn iter_packed_link_set() {
-        let ptr = LinkPtr::new_packed_set(AtomPtr(1), &[AtomPtr(2), AtomPtr(3), AtomPtr(4), AtomPtr(5), AtomPtr(0)]);
-        let mut iter = LinkIter::new(Link { atom: AtomPtr(1), link: ptr }, &[], &[]);
+        let ptr = LinkPtr::new_packed_set(
+            AtomPtr(1),
+            &[AtomPtr(2), AtomPtr(3), AtomPtr(4), AtomPtr(5), AtomPtr(0)],
+        );
+        let mut iter = LinkIter::new(
+            Link {
+                atom: AtomPtr(1),
+                link: ptr,
+            },
+            &[],
+            &[],
+        );
 
         assert_eq!(iter.next(), Some(AtomPtr(2)));
         assert_eq!(iter.next(), Some(AtomPtr(3)));
@@ -524,7 +534,14 @@ mod tests {
     #[test]
     fn iter_atom_ptr() {
         let ptr = LinkPtr::new_atom_ptr(AtomPtr(20));
-        let mut iter = LinkIter::new(Link { atom: AtomPtr(20), link: ptr }, &[], &[]);
+        let mut iter = LinkIter::new(
+            Link {
+                atom: AtomPtr(20),
+                link: ptr,
+            },
+            &[],
+            &[],
+        );
 
         assert_eq!(iter.next(), Some(AtomPtr(20)));
         assert_eq!(iter.next(), None);
@@ -543,9 +560,19 @@ mod tests {
             AtomPtr(17),
         ])];
 
-        sets[0].next = Link{ atom: AtomPtr(20), link: LinkPtr::new_atom_ptr(AtomPtr(100)) };
+        sets[0].next = Link {
+            atom: AtomPtr(20),
+            link: LinkPtr::new_atom_ptr(AtomPtr(100)),
+        };
 
-        let mut iter = LinkIter::new(Link { atom: AtomPtr(9), link: LinkPtr::new_small_link_set_index(0) }, &sets, &[]);
+        let mut iter = LinkIter::new(
+            Link {
+                atom: AtomPtr(9),
+                link: LinkPtr::new_small_link_set_index(0),
+            },
+            &sets,
+            &[],
+        );
 
         assert_eq!(iter.next(), Some(AtomPtr(10)));
         assert_eq!(iter.next(), Some(AtomPtr(11)));
@@ -572,7 +599,11 @@ mod tests {
             AtomPtr(17),
         ])];
 
-        let mut small_sets = [SmallLinkSet::from_slice(&[AtomPtr(18), AtomPtr(19), AtomPtr(20)])];
+        let mut small_sets = [SmallLinkSet::from_slice(&[
+            AtomPtr(18),
+            AtomPtr(19),
+            AtomPtr(20),
+        ])];
 
         large_sets[0].next = Link {
             atom: AtomPtr(1000),
@@ -581,18 +612,28 @@ mod tests {
 
         small_sets[0].next = Link {
             atom: AtomPtr(50),
-            link: LinkPtr::new_packed_set(AtomPtr(50), &[
-                AtomPtr(21),
-                AtomPtr(22),
-                AtomPtr(23),
-                AtomPtr(24),
-                AtomPtr(25),
-            ])
+            link: LinkPtr::new_packed_set(
+                AtomPtr(50),
+                &[
+                    AtomPtr(21),
+                    AtomPtr(22),
+                    AtomPtr(23),
+                    AtomPtr(24),
+                    AtomPtr(25),
+                ],
+            ),
         };
 
-        let mut iter = LinkIter::new(Link { atom: AtomPtr(9), link: LinkPtr::new_large_link_set_index(0) }, &small_sets, &large_sets);
+        let mut iter = LinkIter::new(
+            Link {
+                atom: AtomPtr(9),
+                link: LinkPtr::new_large_link_set_index(0),
+            },
+            &small_sets,
+            &large_sets,
+        );
 
-        for i in 10 ..= 25 {
+        for i in 10..=25 {
             assert_eq!(iter.next(), Some(AtomPtr(i)));
         }
         assert_eq!(iter.next(), None);
