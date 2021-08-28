@@ -408,7 +408,7 @@ impl <'a> Iterator for LinkIter<'a> {
                 let p = set.pointers[self.index as usize];
 
                 self.index += 1;
-                if self.index == 30 || set.pointers[self.index as usize].is_null() {
+                if self.index == 510 || set.pointers[self.index as usize].is_null() {
                     self.index = 0;
                     self.current = set.next;
                 }
