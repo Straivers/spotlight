@@ -106,7 +106,7 @@ impl LinkPtr {
     /// Link::new_packed_set(AtomPtr(5), [AtomPtr(1), AtomPtr(2), AtomPtr(60), AtomPtr(0), AtomPtr(0)]);
     /// // Index out of range here ---------------------------------------^
     /// ```
-    /// 
+    ///
     /// ```should_panic
     /// # use graph::{AtomPtr, Link};
     /// Link::new_packed_set(AtomPtr(5), [AtomPtr(1), AtomPtr(0), AtomPtr(3), AtomPtr(0), AtomPtr(0)]);
@@ -353,13 +353,7 @@ mod tests {
         {
             let ptr = LinkPtr::new_packed_set(
                 AtomPtr(3),
-                [
-                    AtomPtr(1),
-                    AtomPtr(2),
-                    AtomPtr(4),
-                    AtomPtr(4),
-                    AtomPtr(5),
-                ],
+                [AtomPtr(1), AtomPtr(2), AtomPtr(4), AtomPtr(4), AtomPtr(5)],
             );
             let offsets = ptr.as_packed_set(AtomPtr(3));
 
@@ -381,10 +375,7 @@ mod tests {
                 ],
             );
 
-            assert_eq!(
-                ptr.as_packed_set(AtomPtr::MAX)[0],
-                AtomPtr(u32::MAX - 4)
-            );
+            assert_eq!(ptr.as_packed_set(AtomPtr::MAX)[0], AtomPtr(u32::MAX - 4));
         }
     }
 
@@ -394,13 +385,7 @@ mod tests {
         // Packed sets must never be completely empty.
         let _ = LinkPtr::new_packed_set(
             AtomPtr(3),
-            [
-                AtomPtr(0),
-                AtomPtr(0),
-                AtomPtr(0),
-                AtomPtr(0),
-                AtomPtr(0),
-            ],
+            [AtomPtr(0), AtomPtr(0), AtomPtr(0), AtomPtr(0), AtomPtr(0)],
         );
     }
 
@@ -410,13 +395,7 @@ mod tests {
         // Packed sets must never have an interior null pointer.
         let _ = LinkPtr::new_packed_set(
             AtomPtr(3),
-            [
-                AtomPtr(1),
-                AtomPtr(1),
-                AtomPtr(0),
-                AtomPtr(1),
-                AtomPtr(1),
-            ],
+            [AtomPtr(1), AtomPtr(1), AtomPtr(0), AtomPtr(1), AtomPtr(1)],
         );
     }
 

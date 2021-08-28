@@ -1,4 +1,4 @@
-#![allow(clippy::doc_markdown)]
+#![allow(clippy::doc_markdown, clippy::module_name_repetitions)]
 
 mod atom;
 pub use crate::atom::*;
