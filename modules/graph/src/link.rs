@@ -1,11 +1,10 @@
-use std::cell::Cell;
-
 use crate::atom::AtomPtr;
 
+#[derive(Debug)]
 pub struct Links {
-    pub next: Cell<LinkPtr>,
-    pub prev: Cell<LinkPtr>,
-    pub links: Cell<LinkPtr>,
+    pub next: LinkPtr,
+    pub prev: LinkPtr,
+    pub links: LinkPtr,
     _unused: [u8; 4],
 }
 
@@ -91,8 +90,8 @@ impl LinkPtr {
     /// pointer itself. It is invalid for the `current` pointer to be null.
     ///
     /// ```
-    /// # use graph::{AtomPtr, Link};
-    /// Link::new_packed_set(AtomPtr(5), [AtomPtr(1), AtomPtr(2), AtomPtr(35), AtomPtr(0), AtomPtr(0)]);
+    /// # use graph::{AtomPtr, LinkPtr};
+    /// LinkPtr::new_packed_set(AtomPtr(5), [AtomPtr(1), AtomPtr(2), AtomPtr(35), AtomPtr(0), AtomPtr(0)]);
     /// ```
     ///
     /// To pack in 5 link pointers, each must obey certain restrictions:
@@ -102,14 +101,14 @@ impl LinkPtr {
     ///  - It must not be an interior null pointer.
     ///
     /// ```should_panic
-    /// # use graph::{AtomPtr, Link};
-    /// Link::new_packed_set(AtomPtr(5), [AtomPtr(1), AtomPtr(2), AtomPtr(60), AtomPtr(0), AtomPtr(0)]);
+    /// # use graph::{AtomPtr, LinkPtr};
+    /// LinkPtr::new_packed_set(AtomPtr(5), [AtomPtr(1), AtomPtr(2), AtomPtr(60), AtomPtr(0), AtomPtr(0)]);
     /// // Index out of range here ---------------------------------------^
     /// ```
     ///
     /// ```should_panic
-    /// # use graph::{AtomPtr, Link};
-    /// Link::new_packed_set(AtomPtr(5), [AtomPtr(1), AtomPtr(0), AtomPtr(3), AtomPtr(0), AtomPtr(0)]);
+    /// # use graph::{AtomPtr, LinkPtr};
+    /// LinkPtr::new_packed_set(AtomPtr(5), [AtomPtr(1), AtomPtr(0), AtomPtr(3), AtomPtr(0), AtomPtr(0)]);
     /// // Interior null here --------------------------------^
     /// ```
     #[must_use]
@@ -335,6 +334,22 @@ pub type SmallLinkSet = LinkSet<30>;
 /// A large [LinkSet] of 510 references. See the documentation of [LinkSet] for
 /// more details.
 pub type LargeLinkSet = LinkSet<510>;
+
+/// Iterator that traverses a list of [LinkPtr]s and produces [AtomPtr]s.
+pub struct LinkIter<'a> {
+    index: u16,
+    current: LinkPtr,
+    small_sets: &'a [SmallLinkSet],
+    large_sets: &'a [LargeLinkSet],
+}
+
+impl <'a> Iterator for LinkIter<'a> {
+    type Item = AtomPtr;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        todo!()
+    }
+}
 
 /// Does a raw conversion of the low 6 bits to an i64
 fn i6_to_i64(raw_i6: u32) -> i64 {
