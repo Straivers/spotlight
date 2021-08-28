@@ -1,7 +1,7 @@
 use crate::{
     atom::{Atom, AtomPtr},
     error::GraphError,
-    link::{LargeLinkSet, LinkIter, LinkPtr, Links, SmallLinkSet},
+    link::{LargeLinkSet, Link, LinkIter, LinkPtr, Links, SmallLinkSet},
 };
 
 #[derive(Debug, Default)]
@@ -29,8 +29,12 @@ impl Graph {
         todo!()
     }
 
-    pub fn links_of(&self, atom: AtomPtr) -> LinkIter {
-        todo!()
+    pub fn iter_links(&self, atom: AtomPtr, link: LinkPtr) -> LinkIter {
+        LinkIter::new(
+            Link { atom, link },
+            &self.small_link_sets,
+            &self.large_link_sets,
+        )
     }
 
     pub fn add_link(&mut self, from: AtomPtr, to: AtomPtr) {
