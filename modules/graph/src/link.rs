@@ -1,5 +1,6 @@
 use crate::atom::AtomPtr;
 
+/// Holds the collected link pointers associated with an [Atom](crate::atom::Atom).
 #[derive(Debug)]
 pub struct Links {
     pub next: LinkPtr,
@@ -212,23 +213,23 @@ impl LinkPtr {
 
         [
             AtomPtr((p + offsets[0]) as u32),
-            if offsets[0] == 0 {
-                AtomPtr(0)
+            if offsets[1] == 0 {
+                AtomPtr::null()
             } else {
                 AtomPtr((p + offsets[1]) as u32)
             },
-            if offsets[0] == 0 {
-                AtomPtr(0)
+            if offsets[2] == 0 {
+                AtomPtr::null()
             } else {
                 AtomPtr((p + offsets[2]) as u32)
             },
-            if offsets[0] == 0 {
-                AtomPtr(0)
+            if offsets[3] == 0 {
+                AtomPtr::null()
             } else {
                 AtomPtr((p + offsets[3]) as u32)
             },
-            if offsets[0] == 0 {
-                AtomPtr(0)
+            if offsets[4] == 0 {
+                AtomPtr::null()
             } else {
                 AtomPtr((p + offsets[4]) as u32)
             },
@@ -391,12 +392,19 @@ mod tests {
             );
 
             assert_eq!(ptr.as_packed_set(AtomPtr::MAX)[0], AtomPtr(u32::MAX - 4));
+            let set = ptr.as_packed_set(AtomPtr::MAX);
+            assert_eq!(set[0], AtomPtr(u32::MAX - 4));
+            assert_eq!(set[1], AtomPtr::null());
+            assert_eq!(set[2], AtomPtr::null());
+            assert_eq!(set[3], AtomPtr::null());
+            assert_eq!(set[4], AtomPtr::null());
         }
     }
 
     #[test]
     #[should_panic]
     fn bad_ptr_adjescent1() {
+    fn bad_packed_set1() {
         // Packed sets must never be completely empty.
         let _ = LinkPtr::new_packed_set(
             AtomPtr(3),
@@ -407,6 +415,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn bad_ptr_adjescent2() {
+    fn bad_packed_set2() {
         // Packed sets must never have an interior null pointer.
         let _ = LinkPtr::new_packed_set(
             AtomPtr(3),

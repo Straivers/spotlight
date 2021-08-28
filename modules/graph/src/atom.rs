@@ -9,6 +9,14 @@ pub struct AtomPtr(pub u32);
 
 impl AtomPtr {
     pub const MAX: AtomPtr = AtomPtr(u32::MAX);
+    
+    pub fn null() -> Self {
+        AtomPtr(0)
+    }
+
+    pub fn is_null(&self) -> bool {
+        self.0 == 0
+    }
 }
 
 /// An [Atom] is the unit of information stored within a [Graph](crate::graph::Graph), and is
