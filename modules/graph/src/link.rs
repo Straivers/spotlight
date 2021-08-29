@@ -1,3 +1,26 @@
+//! This module contains types related to the creation, modification, and
+//! traveral of links between [Atom](crate::atom::Atom)s.
+//!
+//! The [LinkPtr] forms the basis of any graph of [Atom](crate::atom::Atom)s, by
+//! pointing to an ordered sequence of [AtomPtr]s. These [AtomPtr]s are stored
+//! in any of four ways:
+//!
+//! - An inline set (1 [AtomPtr]), a packed set (5 [AtomPtr]s)
+//! - A [SmallLinkSet] (30 [AtomPtr]s)
+//! - A [LargeLinkSet] (126 [AtomPtr]s).
+//!
+//! These sets of [AtomPtr]s then connect to each other (largest to smallest) to
+//! form a singly linked list to support arbitrary numbers of links.
+//!
+//! In order to maintain efficient traversal of an [Atom](crate::atom::Atom)'s
+//! links, a number of invariants apply to link sets:
+//!
+//! - A link set must never be empty. It _can_ however, be absent.
+//! - A link set must have all of its pointers populated densely (without
+//!   nulls), starting from index `0`.
+//! - When an element is removed from a link set and the next link set will fit
+//!   within the current set, all elements from the next set will be moved to
+//!   the current set and the next set freed.
 use crate::atom::AtomPtr;
 
 /// Holds the collected link pointers associated with an [Atom](crate::atom::Atom).
@@ -62,7 +85,7 @@ impl LinkKind {
 /// - A packed format, which can hold 5 references packed into 6-bit signed
 ///   offsets.
 /// - An index to a [SmallLinkSet], which can hold up to 30 reference.
-/// - An index to a [LargeLinkSet], which can hold up to 510 references.
+/// - An index to a [LargeLinkSet], which can hold up to 126 references.
 ///
 /// In every case, it is invalid for a link set to hold no references except in
 /// its default state.
@@ -101,7 +124,7 @@ impl LinkPtr {
     /// pointer itself. It is invalid for the `current` pointer to be null.
     ///
     /// ```
-    /// # use graph::{AtomPtr, LinkPtr};
+    /// # use graph::{atom::AtomPtr, link::LinkPtr};
     /// LinkPtr::new_packed_set(AtomPtr(5), &[AtomPtr(1), AtomPtr(2), AtomPtr(35)]);
     /// ```
     ///
@@ -112,30 +135,34 @@ impl LinkPtr {
     ///  - It must not be an interior null pointer.
     ///
     /// ```should_panic
-    /// # use graph::{AtomPtr, LinkPtr};
+    /// # use graph::{atom::AtomPtr, link::LinkPtr};
     /// LinkPtr::new_packed_set(AtomPtr(5), &[AtomPtr(1), AtomPtr(2), AtomPtr(60)]);
     /// // Index out of range here ---------------------------------------^
     /// ```
     ///
     /// ```should_panic
-    /// # use graph::{AtomPtr, LinkPtr};
+    /// # use graph::{atom::AtomPtr, link::LinkPtr};
     /// LinkPtr::new_packed_set(AtomPtr(5), &[AtomPtr(1), AtomPtr(0), AtomPtr(3)]);
     /// // Interior null here --------------------------------^
     /// ```
     #[must_use]
     pub fn new_packed_set(current: AtomPtr, pointers: &[AtomPtr]) -> Self {
         assert!(
-            pointers.len() <= 5,
-            "A packed set can contain at most 5 pointers."
+            !pointers.is_empty() && !pointers[0].is_null() && pointers.len() <= 5,
+            "A packed set must have at least 1 pointer, and no more than 5."
         );
 
+        let mut found_0 = false;
         for p in pointers {
             assert_ne!(
                 *p, current,
                 "A packed-offset link pointer must not point to itself."
             );
-            // check for non-trailing 0s
-            assert!(p.0 != 0, "Packed sets should not have null pointers.");
+            assert!(
+                !found_0 || (p.0 == 0),
+                "A packed-offset link pointer must only have trailing null pointers."
+            );
+            found_0 = found_0 || p.0 == 0;
         }
 
         let low_bits = LinkKind::PACKED_OFFSETS;
@@ -285,17 +312,16 @@ pub struct Link {
 /// A [LinkSet] is a fixed-size list of [AtomPtr]s that can be chained to form
 /// a linked list of arbitrary length.
 ///
-/// Such a linked list will always be in order of decreasing size, but not
-/// otherwise sorted.
+/// Such a linked list will always be in order of decreasing size.
 ///
 /// e.g.: [LargeLinkSet]->[SmallLinkSet]->[SmallLinkSet]->[Link] (packed)
 #[repr(C)]
 #[derive(Debug)]
 pub struct LinkSet<const SIZE: usize> {
-    next: Link,
-    length: u16,
+    pub next: Link,
+    pub length: u16,
     unused: [u8; 2],
-    pointers: [AtomPtr; SIZE],
+    pub pointers: [AtomPtr; SIZE],
 }
 
 impl<const SIZE: usize> LinkSet<SIZE> {
@@ -320,14 +346,18 @@ impl<const SIZE: usize> LinkSet<SIZE> {
         set.pointers[0..pointers.len()].copy_from_slice(pointers);
         set
     }
+
+    pub fn capacity(&self) -> usize {
+        SIZE - (self.length as usize)
+    }
 }
 
 /// A small [LinkSet] of 30 references. See the documentation of [LinkSet] for more details.
 pub type SmallLinkSet = LinkSet<30>;
 
-/// A large [LinkSet] of 510 references. See the documentation of [LinkSet] for
+/// A large [LinkSet] of 126 references. See the documentation of [LinkSet] for
 /// more details.
-pub type LargeLinkSet = LinkSet<510>;
+pub type LargeLinkSet = LinkSet<126>;
 
 /// Iterator that traverses a list of [LinkPtr]s and produces [AtomPtr]s.
 pub struct LinkIter<'a> {
@@ -386,7 +416,7 @@ impl<'a> Iterator for LinkIter<'a> {
                 let p = set.pointers[self.index as usize];
 
                 self.index += 1;
-                if self.index == 510 || set.pointers[self.index as usize].is_null() {
+                if self.index == 126 || set.pointers[self.index as usize].is_null() {
                     self.index = 0;
                     self.current = set.next;
                 }
